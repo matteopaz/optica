@@ -11,11 +11,18 @@ PULSE_DURATION_ns = 7 # ns
 ANGLE_ON = 0 # should vary at max between 0 and 45 degrees (symmetrical about +-)
 
 # OPTICS
-SPOTSIZE_mm2 = 0.27 # mm2
+SPOTSIZE_INPUT_mm2 = 0.27 # mm2 (before angle correction)
+SPOTSIZE_mm2 = None
+SPOTSIZE_R_mm = None
 
-# -->
-SPOTSIZE_mm2 = SPOTSIZE_mm2 / np.cos(np.deg2rad(ANGLE_ON)) # effective spot size on target
-SPOTSIZE_R_mm = ( (SPOTSIZE_mm2/3.1415)**0.5 ) # derived but fixed
+def _recalc_spotsize() -> None:
+    global SPOTSIZE_mm2
+    global SPOTSIZE_R_mm
+
+    SPOTSIZE_mm2 = SPOTSIZE_INPUT_mm2 / np.cos(np.deg2rad(ANGLE_ON)) # effective spot size on target
+    SPOTSIZE_R_mm = ( (SPOTSIZE_mm2/3.1415)**0.5 ) # derived but fixed
+
+_recalc_spotsize()
 
 # GATING
 DELAY_us = 5 # 5 us
@@ -117,3 +124,32 @@ print(f"Calculated electron density Ne: {Ne_cm3:.2e} cm^-3")
 print(f"Calculated Teff at delay {DELAY_us} us: {T_eff_K:.2f} K")
 
 # 1 microsecond gating
+
+def set_physical_params(
+    pulse_energy_mj: float | None = None,
+    delay_us: float | None = None,
+    spotsize_mm2: float | None = None,
+    angle_on_deg: float | None = None,
+) -> None:
+    """
+    Update primary physical parameters and recompute derived quantities.
+
+    spotsize_mm2 is the uncorrected spot area; angle correction is applied internally.
+    """
+
+    global PULSE_ENERGY_mJ
+    global DELAY_us
+    global SPOTSIZE_INPUT_mm2
+    global ANGLE_ON
+
+    if pulse_energy_mj is not None:
+        PULSE_ENERGY_mJ = float(pulse_energy_mj)
+    if delay_us is not None:
+        DELAY_us = float(delay_us)
+    if spotsize_mm2 is not None:
+        SPOTSIZE_INPUT_mm2 = float(spotsize_mm2)
+    if angle_on_deg is not None:
+        ANGLE_ON = float(angle_on_deg)
+
+    _recalc_spotsize()
+    calc_derived()

@@ -1,6 +1,44 @@
 from simLIBS import SimulatedLIBS
+from functools import lru_cache
 import numpy as np
-from configs import LOW_W_nm, UPPER_W_nm, RES_nm, Te_eV, Ne_cm3, T_eff_K
+import configs
+
+
+@lru_cache(maxsize=256)
+def _cached_raw_spectrum(
+    element: str,
+    te_eV: float,
+    ne_cm3: float,
+    resolution: int,
+    low_w: float,
+    upper_w: float,
+    max_ion_charge: int,
+    webscraping: str,
+) -> tuple[np.ndarray, np.ndarray]:
+    libs = SimulatedLIBS(
+        Te=te_eV,
+        Ne=ne_cm3,
+        elements=[element],
+        percentages=[100],
+        resolution=resolution,
+        low_w=low_w,
+        upper_w=upper_w,
+        max_ion_charge=max_ion_charge,
+        webscraping=webscraping,
+    )
+
+    spec = libs.get_raw_spectrum()
+    wav = np.array(spec["wavelength"], dtype=np.float64)
+    intensity = np.array(spec["intensity"], dtype=np.float64)
+
+    wav.setflags(write=False)
+    intensity.setflags(write=False)
+
+    return wav, intensity
+
+
+def clear_simlibs_cache() -> None:
+    _cached_raw_spectrum.cache_clear()
 
 # libs = SimulatedLIBS(Te=1.0,
 #                      Ne=10**17,
@@ -13,30 +51,25 @@ from configs import LOW_W_nm, UPPER_W_nm, RES_nm, Te_eV, Ne_cm3, T_eff_K
 #                      webscraping='static')
 
 def clean_lines_single(element: str) -> tuple[np.ndarray, np.ndarray]:
-
-    libs = SimulatedLIBS(
-        Te=Te_eV,
-        Ne=Ne_cm3,
-        elements=[element],
-        percentages=[100],
-        resolution=int(np.ceil((UPPER_W_nm - LOW_W_nm) / RES_nm)),
-        low_w=LOW_W_nm,
-        upper_w=UPPER_W_nm,
+    resolution = int(np.ceil((configs.UPPER_W_nm - configs.LOW_W_nm) / configs.RES_nm))
+    wav, intensity = _cached_raw_spectrum(
+        element=element,
+        te_eV=configs.Te_eV,
+        ne_cm3=configs.Ne_cm3,
+        resolution=resolution,
+        low_w=configs.LOW_W_nm,
+        upper_w=configs.UPPER_W_nm,
         max_ion_charge=3,
-        webscraping='static'
+        webscraping="static",
     )
 
-    spec = libs.get_raw_spectrum()
-    wav = np.array(spec["wavelength"], dtype=np.float64)
-    intensity = np.array(spec["intensity"], dtype=np.float64)
-
-    return wav, intensity
+    return wav.copy(), intensity.copy()
 
 def clean_lines_composition(elements: list[str], fracs: list[float]) -> tuple[np.ndarray, np.ndarray]:
     specs = [clean_lines_single(element) for element in elements]
 
     # Create a common wavelength grid
-    common_wav = np.arange(LOW_W_nm, UPPER_W_nm + RES_nm, RES_nm)
+    common_wav = np.arange(configs.LOW_W_nm, configs.UPPER_W_nm + configs.RES_nm, configs.RES_nm)
 
     intensities = []
     for spec in specs:
@@ -62,27 +95,25 @@ def clean_lines_composition(elements: list[str], fracs: list[float]) -> tuple[np
     return common_wav, total_intensity
 
 
-def add_continuum(wav: np.ndarray, intensity: np.ndarray, scale: float) -> tuple[np.ndarray, np.ndarray]:
+def add_continuum(wav: np.ndarray, intensity: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """
     Add a Bremsstrahlung continuum to the spectrum.
-
-    scale: decimal of the maximum intensity to set as continuum level
+    
     """
-    if scale <= 0:
-        return wav, intensity
+    scale = 0.3
 
     wav = np.asarray(wav, dtype=np.float64)
     intensity = np.asarray(intensity, dtype=np.float64)
 
     # Temperature: prefer electron temperature; fall back to effective temperature
-    if Te_eV is not None and Te_eV > 0:
-        T_K = Te_eV * 11604.518  # eV -> K
-    elif T_eff_K is not None and T_eff_K > 0:
-        T_K = float(T_eff_K)
+    if configs.Te_eV is not None and configs.Te_eV > 0:
+        T_K = configs.Te_eV * 11604.518  # eV -> K
+    elif configs.T_eff_K is not None and configs.T_eff_K > 0:
+        T_K = float(configs.T_eff_K)
     else:
         T_K = 10000.0
 
-    ne = float(Ne_cm3) if Ne_cm3 is not None and Ne_cm3 > 0 else 1e16
+    ne = float(configs.Ne_cm3) if configs.Ne_cm3 is not None and configs.Ne_cm3 > 0 else 1e16
     ni = ne  # assume singly ionized, quasi-neutral plasma
     Z_eff = 1.0
 
